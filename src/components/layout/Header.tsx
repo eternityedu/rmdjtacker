@@ -1,7 +1,7 @@
 import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '@/contexts/AuthContext';
 import { Button } from '@/components/ui/button';
-import { Menu, X, LogOut, User, Home, Brain, UtensilsCrossed, LayoutDashboard } from 'lucide-react';
+import { Menu, X, LogOut, User, Home, Brain, UtensilsCrossed, LayoutDashboard, Building } from 'lucide-react';
 import { useState } from 'react';
 import rmdjLogo from '@/assets/rmdj-logo.png';
 
@@ -59,6 +59,13 @@ export const Header = () => {
                   >
                     <UtensilsCrossed className="h-4 w-4" />
                     Nutrition AI
+                  </Link>
+                  <Link 
+                    to="/ai/housing" 
+                    className="flex items-center gap-2 text-muted-foreground hover:text-foreground transition-colors"
+                  >
+                    <Building className="h-4 w-4" />
+                    Housing AI
                   </Link>
                   <Link 
                     to="/houses" 
@@ -128,6 +135,14 @@ export const Header = () => {
                     >
                       <UtensilsCrossed className="h-5 w-5 text-primary" />
                       <span>Nutrition AI</span>
+                    </Link>
+                    <Link 
+                      to="/ai/housing" 
+                      className="flex items-center gap-3 p-3 rounded-lg hover:bg-muted transition-colors"
+                      onClick={() => setMobileMenuOpen(false)}
+                    >
+                      <Building className="h-5 w-5 text-primary" />
+                      <span>Housing AI</span>
                     </Link>
                     <Link 
                       to="/houses" 
