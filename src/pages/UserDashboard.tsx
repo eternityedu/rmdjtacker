@@ -1,95 +1,138 @@
+import { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import { useAuth } from '@/contexts/AuthContext';
 import { Layout } from '@/components/layout/Layout';
+import { GamificationStats } from '@/components/gamification/GamificationStats';
+import { MedalsDisplay } from '@/components/gamification/MedalsDisplay';
+import { supabase } from '@/integrations/supabase/client';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { 
   Brain, 
   UtensilsCrossed, 
   Home, 
-  Flame, 
-  Trophy, 
-  TrendingUp,
   Camera,
-  ArrowRight
+  ArrowRight,
+  Loader2,
+  Beef,
+  Wheat,
+  Droplet
 } from 'lucide-react';
+
+interface TodayNutrition {
+  calories: number;
+  protein: number;
+  carbs: number;
+  fats: number;
+  mealsLogged: number;
+}
 
 export default function UserDashboard() {
   const { user } = useAuth();
+  const [todayNutrition, setTodayNutrition] = useState<TodayNutrition | null>(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    if (user) {
+      fetchTodayNutrition();
+    }
+  }, [user]);
+
+  const fetchTodayNutrition = async () => {
+    if (!user) return;
+
+    try {
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+
+      const { data, error } = await supabase
+        .from('food_logs')
+        .select('calories, protein, carbohydrates, fats')
+        .eq('user_id', user.id)
+        .gte('logged_at', today.toISOString());
+
+      if (error) throw error;
+
+      if (data && data.length > 0) {
+        const totals = data.reduce((acc, log) => ({
+          calories: acc.calories + (log.calories || 0),
+          protein: acc.protein + (Number(log.protein) || 0),
+          carbs: acc.carbs + (Number(log.carbohydrates) || 0),
+          fats: acc.fats + (Number(log.fats) || 0),
+        }), { calories: 0, protein: 0, carbs: 0, fats: 0 });
+
+        setTodayNutrition({
+          ...totals,
+          mealsLogged: data.length,
+        });
+      }
+    } catch (error) {
+      console.error('Error fetching nutrition:', error);
+    } finally {
+      setLoading(false);
+    }
+  };
 
   const quickActions = [
     {
       icon: Brain,
       title: 'Lifestyle AI',
-      description: 'Get personalized productivity tips',
+      description: 'Get productivity tips',
       href: '/ai/lifestyle',
       gradient: 'from-emerald-500 to-teal-500'
     },
     {
       icon: UtensilsCrossed,
       title: 'Nutrition AI',
-      description: 'Analyze your food with photos',
+      description: 'Analyze food photos',
       href: '/ai/nutrition',
       gradient: 'from-amber-500 to-orange-500'
     },
     {
       icon: Home,
-      title: 'Find Homes',
-      description: 'Discover rentals that fit your lifestyle',
-      href: '/houses',
+      title: 'Housing AI',
+      description: 'Find your home',
+      href: '/ai/housing',
       gradient: 'from-blue-500 to-indigo-500'
     }
   ];
 
-  const stats = [
-    { icon: Flame, label: 'Day Streak', value: '0', color: 'text-orange-500' },
-    { icon: Trophy, label: 'Medals', value: '0', color: 'text-amber-500' },
-    { icon: TrendingUp, label: 'Weekly Score', value: '0', color: 'text-emerald-500' },
-  ];
-
   return (
     <Layout>
-      <div className="container py-8">
+      <div className="px-4 py-6 pb-20 max-w-lg mx-auto">
         {/* Welcome Section */}
-        <div className="mb-8">
-          <h1 className="font-display text-3xl font-bold mb-2">
+        <div className="mb-6">
+          <h1 className="font-display text-2xl font-bold mb-1">
             Welcome back! 👋
           </h1>
-          <p className="text-muted-foreground">
-            {user?.email} • Let's make today count
+          <p className="text-sm text-muted-foreground">
+            Let's make today count
           </p>
         </div>
 
-        {/* Stats Row */}
-        <div className="grid grid-cols-3 gap-4 mb-8">
-          {stats.map((stat) => (
-            <Card key={stat.label} className="text-center">
-              <CardContent className="pt-6">
-                <stat.icon className={`h-6 w-6 mx-auto mb-2 ${stat.color}`} />
-                <p className="font-display text-2xl font-bold">{stat.value}</p>
-                <p className="text-xs text-muted-foreground">{stat.label}</p>
-              </CardContent>
-            </Card>
-          ))}
-        </div>
+        {/* Gamification Stats */}
+        <GamificationStats />
+
+        {/* Medals Display */}
+        <MedalsDisplay />
 
         {/* Quick Actions */}
-        <div className="mb-8">
-          <h2 className="font-display text-xl font-semibold mb-4">Quick Actions</h2>
-          <div className="grid md:grid-cols-3 gap-4">
+        <div className="mb-6">
+          <h2 className="font-display text-lg font-semibold mb-3">AI Assistants</h2>
+          <div className="grid gap-3">
             {quickActions.map((action) => (
               <Link key={action.href} to={action.href}>
-                <Card className="h-full hover:shadow-card transition-all duration-300 group cursor-pointer border-border/50">
-                  <CardHeader>
-                    <div className={`w-12 h-12 rounded-xl bg-gradient-to-br ${action.gradient} flex items-center justify-center mb-2 group-hover:scale-110 transition-transform`}>
+                <Card className="hover:shadow-card transition-all duration-300 group cursor-pointer border-border/50">
+                  <CardContent className="p-4 flex items-center gap-4">
+                    <div className={`w-12 h-12 rounded-xl bg-gradient-to-br ${action.gradient} flex items-center justify-center flex-shrink-0 group-hover:scale-110 transition-transform`}>
                       <action.icon className="h-6 w-6 text-white" />
                     </div>
-                    <CardTitle className="text-lg flex items-center gap-2">
-                      {action.title}
-                      <ArrowRight className="h-4 w-4 opacity-0 group-hover:opacity-100 transition-opacity" />
-                    </CardTitle>
-                    <CardDescription>{action.description}</CardDescription>
-                  </CardHeader>
+                    <div className="flex-1 min-w-0">
+                      <p className="font-medium text-base">{action.title}</p>
+                      <p className="text-sm text-muted-foreground">{action.description}</p>
+                    </div>
+                    <ArrowRight className="h-5 w-5 text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity" />
+                  </CardContent>
                 </Card>
               </Link>
             ))}
@@ -97,44 +140,85 @@ export default function UserDashboard() {
         </div>
 
         {/* Today's Nutrition */}
-        <Card className="mb-8">
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
+        <Card className="mb-6">
+          <CardHeader className="pb-2">
+            <CardTitle className="text-lg flex items-center gap-2">
               <UtensilsCrossed className="h-5 w-5 text-primary" />
               Today's Nutrition
             </CardTitle>
-            <CardDescription>Track your meals to see insights</CardDescription>
           </CardHeader>
           <CardContent>
-            <div className="flex flex-col items-center py-8 text-center">
-              <div className="w-16 h-16 rounded-full bg-secondary flex items-center justify-center mb-4">
-                <Camera className="h-8 w-8 text-muted-foreground" />
+            {loading ? (
+              <div className="flex justify-center py-8">
+                <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
               </div>
-              <p className="text-muted-foreground mb-4">
-                No meals logged yet today
-              </p>
-              <Link to="/ai/nutrition">
-                <Button className="brand-gradient text-primary-foreground">
-                  <Camera className="mr-2 h-4 w-4" />
-                  Log Your First Meal
-                </Button>
-              </Link>
-            </div>
+            ) : todayNutrition ? (
+              <div className="space-y-4">
+                <div className="grid grid-cols-4 gap-2">
+                  <div className="text-center p-2 rounded-lg bg-secondary">
+                    <p className="text-lg font-bold text-orange-500">{todayNutrition.calories}</p>
+                    <p className="text-xs text-muted-foreground">Calories</p>
+                  </div>
+                  <div className="text-center p-2 rounded-lg bg-secondary">
+                    <div className="flex items-center justify-center gap-1">
+                      <Beef className="h-3 w-3 text-red-500" />
+                      <span className="text-lg font-bold">{Math.round(todayNutrition.protein)}g</span>
+                    </div>
+                    <p className="text-xs text-muted-foreground">Protein</p>
+                  </div>
+                  <div className="text-center p-2 rounded-lg bg-secondary">
+                    <div className="flex items-center justify-center gap-1">
+                      <Wheat className="h-3 w-3 text-amber-500" />
+                      <span className="text-lg font-bold">{Math.round(todayNutrition.carbs)}g</span>
+                    </div>
+                    <p className="text-xs text-muted-foreground">Carbs</p>
+                  </div>
+                  <div className="text-center p-2 rounded-lg bg-secondary">
+                    <div className="flex items-center justify-center gap-1">
+                      <Droplet className="h-3 w-3 text-blue-500" />
+                      <span className="text-lg font-bold">{Math.round(todayNutrition.fats)}g</span>
+                    </div>
+                    <p className="text-xs text-muted-foreground">Fats</p>
+                  </div>
+                </div>
+                <p className="text-center text-sm text-muted-foreground">
+                  {todayNutrition.mealsLogged} meal{todayNutrition.mealsLogged !== 1 ? 's' : ''} logged today
+                </p>
+              </div>
+            ) : (
+              <div className="flex flex-col items-center py-6 text-center">
+                <div className="w-14 h-14 rounded-full bg-secondary flex items-center justify-center mb-3">
+                  <Camera className="h-7 w-7 text-muted-foreground" />
+                </div>
+                <p className="text-sm text-muted-foreground mb-4">
+                  No meals logged yet today
+                </p>
+                <Link to="/ai/nutrition">
+                  <Button className="brand-gradient text-primary-foreground" size="sm">
+                    <Camera className="mr-2 h-4 w-4" />
+                    Log Your First Meal
+                  </Button>
+                </Link>
+              </div>
+            )}
           </CardContent>
         </Card>
 
-        {/* Recent Activity placeholder */}
-        <Card>
-          <CardHeader>
-            <CardTitle>Recent Activity</CardTitle>
-            <CardDescription>Your latest interactions and achievements</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <p className="text-center text-muted-foreground py-8">
-              Start using the platform to see your activity here
-            </p>
-          </CardContent>
-        </Card>
+        {/* Browse Homes CTA */}
+        <Link to="/houses">
+          <Card className="bg-gradient-to-r from-blue-500/10 to-indigo-500/10 border-blue-500/20 hover:shadow-card transition-all">
+            <CardContent className="p-4 flex items-center gap-4">
+              <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-blue-500 to-indigo-500 flex items-center justify-center flex-shrink-0">
+                <Home className="h-6 w-6 text-white" />
+              </div>
+              <div className="flex-1">
+                <p className="font-medium">Browse Rentals</p>
+                <p className="text-sm text-muted-foreground">View approved listings</p>
+              </div>
+              <ArrowRight className="h-5 w-5 text-muted-foreground" />
+            </CardContent>
+          </Card>
+        </Link>
       </div>
     </Layout>
   );

@@ -88,9 +88,11 @@ export type Database = {
           created_at: string
           current_streak: number
           habit_name: string
+          habit_type: string | null
           id: string
           last_completed_at: string | null
           longest_streak: number
+          points_earned: number | null
           updated_at: string
           user_id: string
         }
@@ -98,9 +100,11 @@ export type Database = {
           created_at?: string
           current_streak?: number
           habit_name: string
+          habit_type?: string | null
           id?: string
           last_completed_at?: string | null
           longest_streak?: number
+          points_earned?: number | null
           updated_at?: string
           user_id: string
         }
@@ -108,9 +112,11 @@ export type Database = {
           created_at?: string
           current_streak?: number
           habit_name?: string
+          habit_type?: string | null
           id?: string
           last_completed_at?: string | null
           longest_streak?: number
+          points_earned?: number | null
           updated_at?: string
           user_id?: string
         }
@@ -164,6 +170,33 @@ export type Database = {
           rental_price?: number
           title?: string
           updated_at?: string
+        }
+        Relationships: []
+      }
+      medals: {
+        Row: {
+          created_at: string
+          description: string
+          icon: string
+          id: string
+          name: string
+          points_required: number
+        }
+        Insert: {
+          created_at?: string
+          description: string
+          icon: string
+          id?: string
+          name: string
+          points_required?: number
+        }
+        Update: {
+          created_at?: string
+          description?: string
+          icon?: string
+          id?: string
+          name?: string
+          points_required?: number
         }
         Relationships: []
       }
@@ -231,6 +264,65 @@ export type Database = {
           user_id?: string
         }
         Relationships: []
+      }
+      user_levels: {
+        Row: {
+          current_level: number
+          id: string
+          last_activity_date: string | null
+          total_points: number
+          updated_at: string
+          user_id: string
+          weekly_points: number
+        }
+        Insert: {
+          current_level?: number
+          id?: string
+          last_activity_date?: string | null
+          total_points?: number
+          updated_at?: string
+          user_id: string
+          weekly_points?: number
+        }
+        Update: {
+          current_level?: number
+          id?: string
+          last_activity_date?: string | null
+          total_points?: number
+          updated_at?: string
+          user_id?: string
+          weekly_points?: number
+        }
+        Relationships: []
+      }
+      user_medals: {
+        Row: {
+          earned_at: string
+          id: string
+          medal_id: string
+          user_id: string
+        }
+        Insert: {
+          earned_at?: string
+          id?: string
+          medal_id: string
+          user_id: string
+        }
+        Update: {
+          earned_at?: string
+          id?: string
+          medal_id?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "user_medals_medal_id_fkey"
+            columns: ["medal_id"]
+            isOneToOne: false
+            referencedRelation: "medals"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       user_roles: {
         Row: {
