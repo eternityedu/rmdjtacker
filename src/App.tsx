@@ -11,6 +11,8 @@ import OwnerDashboard from "./pages/OwnerDashboard";
 import AdminDashboard from "./pages/AdminDashboard";
 import Houses from "./pages/Houses";
 import NutritionAI from "./pages/NutritionAI";
+import LifestyleAI from "./pages/LifestyleAI";
+import HousingAI from "./pages/HousingAI";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -30,6 +32,8 @@ const App = () => (
             <Route path="/admin" element={<AdminDashboard />} />
             <Route path="/houses" element={<Houses />} />
             <Route path="/ai/nutrition" element={<NutritionAI />} />
+            <Route path="/ai/lifestyle" element={<LifestyleAI />} />
+            <Route path="/ai/housing" element={<HousingAI />} />
             <Route path="*" element={<NotFound />} />
           </Routes>
         </BrowserRouter>
