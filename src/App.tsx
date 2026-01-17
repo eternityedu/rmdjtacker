@@ -8,7 +8,9 @@ import Index from "./pages/Index";
 import Auth from "./pages/Auth";
 import UserDashboard from "./pages/UserDashboard";
 import OwnerDashboard from "./pages/OwnerDashboard";
+import AdminDashboard from "./pages/AdminDashboard";
 import Houses from "./pages/Houses";
+import NutritionAI from "./pages/NutritionAI";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -25,7 +27,9 @@ const App = () => (
             <Route path="/auth" element={<Auth />} />
             <Route path="/dashboard" element={<UserDashboard />} />
             <Route path="/owner" element={<OwnerDashboard />} />
+            <Route path="/admin" element={<AdminDashboard />} />
             <Route path="/houses" element={<Houses />} />
+            <Route path="/ai/nutrition" element={<NutritionAI />} />
             <Route path="*" element={<NotFound />} />
           </Routes>
         </BrowserRouter>

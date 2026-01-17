@@ -7,6 +7,8 @@ import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { Label } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
+import { ScrollArea } from '@/components/ui/scroll-area';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
 import { 
@@ -16,7 +18,8 @@ import {
   Clock,
   CheckCircle,
   XCircle,
-  Loader2
+  Loader2,
+  Send
 } from 'lucide-react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 
@@ -30,12 +33,24 @@ interface House {
   created_at: string;
 }
 
+interface Message {
+  id: string;
+  message: string;
+  sender_id: string;
+  is_from_admin: boolean;
+  created_at: string;
+  house_id: string | null;
+}
+
 export default function OwnerDashboard() {
   const { user } = useAuth();
   const [houses, setHouses] = useState<House[]>([]);
+  const [messages, setMessages] = useState<Message[]>([]);
   const [loading, setLoading] = useState(true);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+  const [newMessage, setNewMessage] = useState('');
+  const [sendingMessage, setSendingMessage] = useState(false);
 
   // Form state
   const [title, setTitle] = useState('');
@@ -44,23 +59,36 @@ export default function OwnerDashboard() {
   const [price, setPrice] = useState('');
 
   useEffect(() => {
-    fetchHouses();
+    if (user) {
+      fetchData();
+    }
   }, [user]);
 
-  const fetchHouses = async () => {
+  const fetchData = async () => {
     if (!user) return;
     
     try {
-      const { data, error } = await supabase
+      // Fetch houses
+      const { data: housesData, error: housesError } = await supabase
         .from('houses')
         .select('*')
         .eq('owner_id', user.id)
         .order('created_at', { ascending: false });
 
-      if (error) throw error;
-      setHouses(data || []);
+      if (housesError) throw housesError;
+      setHouses(housesData || []);
+
+      // Fetch messages
+      const { data: messagesData, error: messagesError } = await supabase
+        .from('owner_admin_messages')
+        .select('*')
+        .or(`sender_id.eq.${user.id},is_from_admin.eq.true`)
+        .order('created_at', { ascending: true });
+
+      if (messagesError) throw messagesError;
+      setMessages(messagesData || []);
     } catch (error) {
-      console.error('Error fetching houses:', error);
+      console.error('Error fetching data:', error);
     } finally {
       setLoading(false);
     }
@@ -97,11 +125,39 @@ export default function OwnerDashboard() {
       setDescription('');
       setLocation('');
       setPrice('');
-      fetchHouses();
+      fetchData();
     } catch (error: any) {
       toast.error(error.message);
     } finally {
       setSubmitting(false);
+    }
+  };
+
+  const handleSendMessage = async () => {
+    if (!newMessage.trim() || !user) return;
+
+    setSendingMessage(true);
+    try {
+      const { data, error } = await supabase
+        .from('owner_admin_messages')
+        .insert({
+          message: newMessage.trim(),
+          sender_id: user.id,
+          is_from_admin: false,
+        })
+        .select()
+        .single();
+
+      if (error) throw error;
+
+      setMessages(prev => [...prev, data]);
+      setNewMessage('');
+      toast.success('Message sent to admin');
+    } catch (error: any) {
+      console.error('Error sending message:', error);
+      toast.error('Failed to send message');
+    } finally {
+      setSendingMessage(false);
     }
   };
 
@@ -152,13 +208,13 @@ export default function OwnerDashboard() {
                   />
                 </div>
                 <div className="space-y-2">
-                  <Label htmlFor="price">Monthly Rent ($) *</Label>
+                  <Label htmlFor="price">Monthly Rent (₹) *</Label>
                   <Input
                     id="price"
                     type="number"
                     value={price}
                     onChange={(e) => setPrice(e.target.value)}
-                    placeholder="1500"
+                    placeholder="15000"
                     required
                   />
                 </div>
@@ -223,57 +279,136 @@ export default function OwnerDashboard() {
           </Card>
         </div>
 
-        {/* Properties List */}
-        <Card>
-          <CardHeader>
-            <CardTitle>Your Properties</CardTitle>
-            <CardDescription>Properties you've submitted for listing</CardDescription>
-          </CardHeader>
-          <CardContent>
-            {loading ? (
-              <div className="flex justify-center py-8">
-                <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
-              </div>
-            ) : houses.length === 0 ? (
-              <div className="text-center py-8">
-                <Home className="h-12 w-12 mx-auto text-muted-foreground mb-4" />
-                <p className="text-muted-foreground mb-4">
-                  You haven't added any properties yet
-                </p>
-                <Button 
-                  onClick={() => setDialogOpen(true)}
-                  className="brand-gradient text-primary-foreground"
-                >
-                  <Plus className="mr-2 h-4 w-4" />
-                  Add Your First Property
-                </Button>
-              </div>
-            ) : (
-              <div className="space-y-4">
-                {houses.map((house) => (
-                  <div 
-                    key={house.id}
-                    className="flex items-center justify-between p-4 rounded-lg border border-border hover:bg-secondary/50 transition-colors"
-                  >
-                    <div className="flex-1">
-                      <div className="flex items-center gap-2 mb-1">
-                        <h3 className="font-semibold">{house.title}</h3>
-                        <Badge variant={house.is_approved ? 'default' : 'secondary'}>
-                          {house.is_approved ? 'Approved' : 'Pending'}
-                        </Badge>
-                      </div>
-                      <p className="text-sm text-muted-foreground">{house.location}</p>
-                      <p className="text-sm font-medium text-primary">${house.rental_price}/month</p>
-                    </div>
-                    <Button variant="ghost" size="sm">
-                      <MessageSquare className="h-4 w-4" />
+        <Tabs defaultValue="properties" className="space-y-6">
+          <TabsList className="grid w-full grid-cols-2">
+            <TabsTrigger value="properties" className="flex items-center gap-2">
+              <Home className="h-4 w-4" />
+              Properties
+            </TabsTrigger>
+            <TabsTrigger value="messages" className="flex items-center gap-2">
+              <MessageSquare className="h-4 w-4" />
+              Chat with Admin
+            </TabsTrigger>
+          </TabsList>
+
+          <TabsContent value="properties">
+            <Card>
+              <CardHeader>
+                <CardTitle>Your Properties</CardTitle>
+                <CardDescription>Properties you've submitted for listing</CardDescription>
+              </CardHeader>
+              <CardContent>
+                {loading ? (
+                  <div className="flex justify-center py-8">
+                    <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+                  </div>
+                ) : houses.length === 0 ? (
+                  <div className="text-center py-8">
+                    <Home className="h-12 w-12 mx-auto text-muted-foreground mb-4" />
+                    <p className="text-muted-foreground mb-4">
+                      You haven't added any properties yet
+                    </p>
+                    <Button 
+                      onClick={() => setDialogOpen(true)}
+                      className="brand-gradient text-primary-foreground"
+                    >
+                      <Plus className="mr-2 h-4 w-4" />
+                      Add Your First Property
                     </Button>
                   </div>
-                ))}
-              </div>
-            )}
-          </CardContent>
-        </Card>
+                ) : (
+                  <div className="space-y-4">
+                    {houses.map((house) => (
+                      <div 
+                        key={house.id}
+                        className="flex items-center justify-between p-4 rounded-lg border border-border hover:bg-secondary/50 transition-colors"
+                      >
+                        <div className="flex-1">
+                          <div className="flex items-center gap-2 mb-1">
+                            <h3 className="font-semibold">{house.title}</h3>
+                            <Badge variant={house.is_approved ? 'default' : 'secondary'}>
+                              {house.is_approved ? 'Approved' : 'Pending'}
+                            </Badge>
+                          </div>
+                          <p className="text-sm text-muted-foreground">{house.location}</p>
+                          <p className="text-sm font-medium text-primary">₹{house.rental_price.toLocaleString()}/month</p>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          </TabsContent>
+
+          <TabsContent value="messages">
+            <Card className="h-[500px] flex flex-col">
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <MessageSquare className="h-5 w-5 text-primary" />
+                  Admin Chat
+                </CardTitle>
+                <CardDescription>
+                  Discuss listing requests, pricing, and approvals with the admin
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="flex-1 flex flex-col p-0">
+                <ScrollArea className="flex-1 px-6">
+                  <div className="space-y-4 py-4">
+                    {messages.length === 0 ? (
+                      <div className="text-center py-8 text-muted-foreground">
+                        <MessageSquare className="h-12 w-12 mx-auto mb-4 opacity-50" />
+                        <p>No messages yet. Start a conversation with the admin.</p>
+                      </div>
+                    ) : (
+                      messages.map((msg) => (
+                        <div
+                          key={msg.id}
+                          className={`flex ${msg.is_from_admin ? 'justify-start' : 'justify-end'}`}
+                        >
+                          <div
+                            className={`max-w-[80%] rounded-2xl px-4 py-2 ${
+                              msg.is_from_admin
+                                ? 'bg-secondary'
+                                : 'bg-primary text-primary-foreground'
+                            }`}
+                          >
+                            <p className="text-sm">{msg.message}</p>
+                            <p className="text-xs opacity-70 mt-1">
+                              {new Date(msg.created_at).toLocaleTimeString()}
+                            </p>
+                          </div>
+                        </div>
+                      ))
+                    )}
+                  </div>
+                </ScrollArea>
+                <div className="p-4 border-t">
+                  <div className="flex gap-2">
+                    <Input
+                      placeholder="Type a message to admin..."
+                      value={newMessage}
+                      onChange={(e) => setNewMessage(e.target.value)}
+                      onKeyDown={(e) => e.key === 'Enter' && !e.shiftKey && handleSendMessage()}
+                      disabled={sendingMessage}
+                    />
+                    <Button 
+                      onClick={handleSendMessage} 
+                      disabled={sendingMessage || !newMessage.trim()}
+                      className="brand-gradient"
+                    >
+                      {sendingMessage ? (
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                      ) : (
+                        <Send className="h-4 w-4" />
+                      )}
+                    </Button>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+          </TabsContent>
+        </Tabs>
       </div>
     </Layout>
   );
