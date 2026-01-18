@@ -13,6 +13,7 @@ import Houses from "./pages/Houses";
 import NutritionAI from "./pages/NutritionAI";
 import LifestyleAI from "./pages/LifestyleAI";
 import HousingAI from "./pages/HousingAI";
+import Challenges from "./pages/Challenges";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -34,6 +35,7 @@ const App = () => (
             <Route path="/ai/nutrition" element={<NutritionAI />} />
             <Route path="/ai/lifestyle" element={<LifestyleAI />} />
             <Route path="/ai/housing" element={<HousingAI />} />
+            <Route path="/challenges" element={<Challenges />} />
             <Route path="*" element={<NotFound />} />
           </Routes>
         </BrowserRouter>
