@@ -11,3 +11,6 @@ verify_jwt = false
 
 [functions.create-admin]
 verify_jwt = false
+
+[functions.daily-decay]
+verify_jwt = false
