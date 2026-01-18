@@ -3,7 +3,8 @@ import { useNavigate } from 'react-router-dom';
 import { useAuth } from '@/contexts/AuthContext';
 import { Layout } from '@/components/layout/Layout';
 import { supabase } from '@/integrations/supabase/client';
-import { useGamification } from '@/hooks/useGamification';
+import { useDisciplineEngine } from '@/hooks/useDisciplineEngine';
+import { useVoiceInput } from '@/hooks/useVoiceInput';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -20,7 +21,9 @@ import {
   Beef,
   Wheat,
   Droplet,
-  AlertTriangle
+  AlertTriangle,
+  Mic,
+  MicOff
 } from 'lucide-react';
 
 interface NutritionData {
@@ -53,7 +56,8 @@ export default function NutritionAI() {
   const { user, loading: authLoading } = useAuth();
   const navigate = useNavigate();
   const { toast } = useToast();
-  const { logMealPoints, logAIChatPoints } = useGamification();
+  const { logMealPoints, logAIChatPoints } = useDisciplineEngine();
+  const { isListening, isSupported, transcript, startListening, stopListening, resetTranscript } = useVoiceInput();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   
@@ -66,6 +70,13 @@ export default function NutritionAI() {
   const [inputMessage, setInputMessage] = useState('');
   const [selectedImage, setSelectedImage] = useState<string | null>(null);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
+
+  // Sync voice transcript to input
+  useEffect(() => {
+    if (transcript) {
+      setInputMessage(transcript);
+    }
+  }, [transcript]);
 
   useEffect(() => {
     if (scrollRef.current) {
@@ -116,6 +127,7 @@ export default function NutritionAI() {
 
     setMessages(prev => [...prev, userMessage]);
     setInputMessage('');
+    resetTranscript();
     const imageToSend = selectedImage;
     setSelectedImage(null);
     setIsAnalyzing(true);
@@ -369,12 +381,31 @@ export default function NutritionAI() {
             >
               <Upload className="h-5 w-5" />
             </Button>
+            {isSupported && (
+              <Button
+                variant={isListening ? "destructive" : "outline"}
+                size="icon"
+                onClick={() => {
+                  if (isListening) {
+                    stopListening();
+                  } else {
+                    resetTranscript();
+                    setInputMessage('');
+                    startListening();
+                  }
+                }}
+                disabled={isAnalyzing}
+                className={`flex-shrink-0 ${isListening ? 'animate-pulse' : ''}`}
+              >
+                {isListening ? <MicOff className="h-5 w-5" /> : <Mic className="h-5 w-5" />}
+              </Button>
+            )}
             <Input
-              placeholder="Ask about nutrition..."
+              placeholder={isListening ? "Listening..." : "Ask about nutrition..."}
               value={inputMessage}
               onChange={(e) => setInputMessage(e.target.value)}
               onKeyDown={(e) => e.key === 'Enter' && !e.shiftKey && handleSendMessage()}
-              disabled={isAnalyzing}
+              disabled={isAnalyzing || isListening}
               className="flex-1"
             />
             <Button
