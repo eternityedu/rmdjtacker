@@ -2,8 +2,8 @@ import { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import { useAuth } from '@/contexts/AuthContext';
 import { Layout } from '@/components/layout/Layout';
-import { GamificationStats } from '@/components/gamification/GamificationStats';
-import { MedalsDisplay } from '@/components/gamification/MedalsDisplay';
+import { DisciplineStats } from '@/components/gamification/DisciplineStats';
+import { DisciplineMedals } from '@/components/gamification/DisciplineMedals';
 import { supabase } from '@/integrations/supabase/client';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -110,11 +110,11 @@ export default function UserDashboard() {
           </p>
         </div>
 
-        {/* Gamification Stats */}
-        <GamificationStats />
+        {/* Discipline Stats */}
+        <DisciplineStats />
 
         {/* Medals Display */}
-        <MedalsDisplay />
+        <DisciplineMedals />
 
         {/* Quick Actions */}
         <div className="mb-6">
