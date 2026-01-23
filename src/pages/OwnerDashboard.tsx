@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
 import { Layout } from '@/components/layout/Layout';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -69,11 +69,49 @@ export default function OwnerDashboard() {
   const [images, setImages] = useState<File[]>([]);
   const [uploadingImages, setUploadingImages] = useState(false);
 
+  const messagesEndRef = useRef<HTMLDivElement>(null);
+
   useEffect(() => {
     if (user) {
       fetchData();
     }
   }, [user]);
+
+  // Real-time subscription for messages
+  useEffect(() => {
+    if (!user) return;
+    
+    const channel = supabase
+      .channel('owner-messages')
+      .on(
+        'postgres_changes',
+        {
+          event: 'INSERT',
+          schema: 'public',
+          table: 'owner_admin_messages',
+        },
+        (payload) => {
+          const newMsg = payload.new as Message;
+          setMessages(prev => {
+            // Avoid duplicates
+            if (prev.some(m => m.id === newMsg.id)) return prev;
+            return [...prev, newMsg];
+          });
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [user]);
+
+  // Scroll to bottom when messages change
+  useEffect(() => {
+    if (messagesEndRef.current) {
+      messagesEndRef.current.scrollIntoView({ behavior: 'smooth' });
+    }
+  }, [messages]);
 
   const fetchData = async () => {
     if (!user) return;
@@ -542,6 +580,7 @@ export default function OwnerDashboard() {
                         </div>
                       ))
                     )}
+                    <div ref={messagesEndRef} />
                   </div>
                 </ScrollArea>
                 <div className="p-4 border-t">

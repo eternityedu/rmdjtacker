@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '@/contexts/AuthContext';
 import { Layout } from '@/components/layout/Layout';
@@ -18,8 +18,12 @@ import {
   X, 
   Loader2,
   Send,
-  User
+  User,
+  Image as ImageIcon,
+  MapPin,
+  Maximize2
 } from 'lucide-react';
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 
 interface House {
   id: string;
@@ -32,6 +36,8 @@ interface House {
   created_at: string;
   description: string | null;
   images: string[] | null;
+  area_sqft: number | null;
+  features: string[] | null;
 }
 
 interface Message {
@@ -53,6 +59,7 @@ export default function AdminDashboard() {
   const { user, userRole, loading: authLoading } = useAuth();
   const navigate = useNavigate();
   const { toast } = useToast();
+  const messagesEndRef = useRef<HTMLDivElement>(null);
   
   const [houses, setHouses] = useState<House[]>([]);
   const [messages, setMessages] = useState<Message[]>([]);
@@ -61,6 +68,8 @@ export default function AdminDashboard() {
   const [newMessage, setNewMessage] = useState('');
   const [loading, setLoading] = useState(true);
   const [actionLoading, setActionLoading] = useState<string | null>(null);
+  const [selectedHouseImages, setSelectedHouseImages] = useState<string[] | null>(null);
+  const [imageDialogOpen, setImageDialogOpen] = useState(false);
 
   useEffect(() => {
     if (!authLoading) {
@@ -71,6 +80,40 @@ export default function AdminDashboard() {
       fetchData();
     }
   }, [user, userRole, authLoading, navigate]);
+
+  // Real-time subscription for messages
+  useEffect(() => {
+    const channel = supabase
+      .channel('admin-messages')
+      .on(
+        'postgres_changes',
+        {
+          event: 'INSERT',
+          schema: 'public',
+          table: 'owner_admin_messages',
+        },
+        (payload) => {
+          const newMsg = payload.new as Message;
+          setMessages(prev => {
+            // Avoid duplicates
+            if (prev.some(m => m.id === newMsg.id)) return prev;
+            return [...prev, newMsg];
+          });
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, []);
+
+  // Scroll to bottom when messages change
+  useEffect(() => {
+    if (messagesEndRef.current) {
+      messagesEndRef.current.scrollIntoView({ behavior: 'smooth' });
+    }
+  }, [messages, selectedOwner]);
 
   const fetchData = async () => {
     try {
@@ -214,25 +257,19 @@ export default function AdminDashboard() {
     if (!newMessage.trim() || !selectedOwner || !user) return;
 
     try {
-      const { error } = await supabase
+      const { data, error } = await supabase
         .from('owner_admin_messages')
         .insert({
           message: newMessage.trim(),
           sender_id: user.id,
           is_from_admin: true,
-        });
+        })
+        .select()
+        .single();
 
       if (error) throw error;
 
-      setMessages(prev => [...prev, {
-        id: crypto.randomUUID(),
-        message: newMessage.trim(),
-        sender_id: user.id,
-        is_from_admin: true,
-        created_at: new Date().toISOString(),
-        house_id: null,
-      }]);
-
+      // Message will be added via realtime subscription
       setNewMessage('');
     } catch (error) {
       console.error('Error sending message:', error);
@@ -245,11 +282,159 @@ export default function AdminDashboard() {
   };
 
   const getOwnerMessages = (ownerId: string) => {
-    return messages.filter(m => m.sender_id === ownerId || (m.is_from_admin && selectedOwner === ownerId));
+    return messages.filter(m => 
+      m.sender_id === ownerId || 
+      (m.is_from_admin && m.sender_id === user?.id)
+    );
+  };
+
+  const getOwnerName = (ownerId: string) => {
+    const owner = owners.find(o => o.user_id === ownerId);
+    return owner?.full_name || owner?.email || 'Unknown Owner';
+  };
+
+  const openImageDialog = (images: string[]) => {
+    setSelectedHouseImages(images);
+    setImageDialogOpen(true);
   };
 
   const pendingHouses = houses.filter(h => !h.is_approved);
   const approvedHouses = houses.filter(h => h.is_approved);
+
+  const HouseCard = ({ house, showActions }: { house: House; showActions: 'pending' | 'approved' }) => (
+    <Card key={house.id}>
+      <CardContent className="p-4">
+        <div className="flex gap-4">
+          {/* House Images */}
+          <div className="flex-shrink-0">
+            {house.images && house.images.length > 0 ? (
+              <button
+                onClick={() => openImageDialog(house.images!)}
+                className="relative w-24 h-24 rounded-lg overflow-hidden group"
+              >
+                <img 
+                  src={house.images[0]} 
+                  alt={house.title}
+                  className="w-full h-full object-cover"
+                />
+                {house.images.length > 1 && (
+                  <div className="absolute inset-0 bg-black/50 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
+                    <Maximize2 className="h-5 w-5 text-white" />
+                    <span className="text-white text-xs ml-1">+{house.images.length - 1}</span>
+                  </div>
+                )}
+              </button>
+            ) : (
+              <div className="w-24 h-24 rounded-lg bg-secondary flex items-center justify-center">
+                <ImageIcon className="h-8 w-8 text-muted-foreground" />
+              </div>
+            )}
+          </div>
+
+          {/* House Details */}
+          <div className="flex-1 min-w-0">
+            <div className="flex items-start justify-between gap-2 mb-2">
+              <div>
+                <h3 className="font-semibold text-lg">{house.title}</h3>
+                <div className="flex items-center gap-1 text-sm text-muted-foreground">
+                  <MapPin className="h-3 w-3" />
+                  {house.location}
+                </div>
+              </div>
+              <Badge variant={house.is_approved ? 'default' : 'secondary'}>
+                {house.is_approved ? 'Approved' : 'Pending'}
+              </Badge>
+            </div>
+
+            {house.description && (
+              <p className="text-sm text-muted-foreground mb-2 line-clamp-2">
+                {house.description}
+              </p>
+            )}
+
+            <div className="flex flex-wrap gap-2 mb-3">
+              <span className="text-sm font-semibold text-primary">
+                ₹{house.rental_price.toLocaleString()}/month
+              </span>
+              {house.area_sqft && (
+                <span className="text-sm text-muted-foreground">
+                  • {house.area_sqft} sq.ft
+                </span>
+              )}
+            </div>
+
+            {house.features && house.features.length > 0 && (
+              <div className="flex flex-wrap gap-1 mb-3">
+                {house.features.slice(0, 4).map((feature, idx) => (
+                  <Badge key={idx} variant="outline" className="text-xs">
+                    {feature}
+                  </Badge>
+                ))}
+                {house.features.length > 4 && (
+                  <Badge variant="outline" className="text-xs">
+                    +{house.features.length - 4} more
+                  </Badge>
+                )}
+              </div>
+            )}
+
+            <div className="flex items-center justify-between">
+              <span className="text-xs text-muted-foreground">
+                Owner: {getOwnerName(house.owner_id)}
+              </span>
+              <div className="flex gap-2">
+                {showActions === 'pending' && (
+                  <>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={() => handleRejectHouse(house.id)}
+                      disabled={actionLoading === house.id}
+                    >
+                      {actionLoading === house.id ? (
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                      ) : (
+                        <X className="h-4 w-4 mr-1" />
+                      )}
+                      Reject
+                    </Button>
+                    <Button
+                      size="sm"
+                      onClick={() => handleApproveHouse(house.id)}
+                      disabled={actionLoading === house.id}
+                      className="brand-gradient"
+                    >
+                      {actionLoading === house.id ? (
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                      ) : (
+                        <Check className="h-4 w-4 mr-1" />
+                      )}
+                      Approve
+                    </Button>
+                  </>
+                )}
+                {showActions === 'approved' && (
+                  <Button
+                    size="sm"
+                    variant="destructive"
+                    onClick={() => handleDeleteHouse(house.id)}
+                    disabled={actionLoading === house.id}
+                  >
+                    {actionLoading === house.id ? (
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                    ) : (
+                      <X className="h-4 w-4 mr-1" />
+                    )}
+                    Delete
+                  </Button>
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
+      </CardContent>
+    </Card>
+  );
 
   if (authLoading || loading) {
     return (
@@ -276,7 +461,7 @@ export default function AdminDashboard() {
           </div>
         </div>
 
-        <div className="grid md:grid-cols-3 gap-4 mb-8">
+        <div className="grid md:grid-cols-4 gap-4 mb-8">
           <Card>
             <CardContent className="pt-6 text-center">
               <p className="font-display text-3xl font-bold text-primary">{pendingHouses.length}</p>
@@ -291,14 +476,20 @@ export default function AdminDashboard() {
           </Card>
           <Card>
             <CardContent className="pt-6 text-center">
-              <p className="font-display text-3xl font-bold text-blue-500">{owners.length}</p>
+              <p className="font-display text-3xl font-bold text-blue-500">{houses.length}</p>
+              <p className="text-sm text-muted-foreground">Total Houses</p>
+            </CardContent>
+          </Card>
+          <Card>
+            <CardContent className="pt-6 text-center">
+              <p className="font-display text-3xl font-bold text-purple-500">{owners.length}</p>
               <p className="text-sm text-muted-foreground">House Owners</p>
             </CardContent>
           </Card>
         </div>
 
         <Tabs defaultValue="pending" className="space-y-6">
-          <TabsList className="grid w-full grid-cols-3">
+          <TabsList className="grid w-full grid-cols-4">
             <TabsTrigger value="pending" className="flex items-center gap-2">
               <Home className="h-4 w-4" />
               Pending ({pendingHouses.length})
@@ -306,6 +497,10 @@ export default function AdminDashboard() {
             <TabsTrigger value="approved" className="flex items-center gap-2">
               <Check className="h-4 w-4" />
               Approved ({approvedHouses.length})
+            </TabsTrigger>
+            <TabsTrigger value="owners" className="flex items-center gap-2">
+              <User className="h-4 w-4" />
+              Owners ({owners.length})
             </TabsTrigger>
             <TabsTrigger value="messages" className="flex items-center gap-2">
               <MessageSquare className="h-4 w-4" />
@@ -324,57 +519,7 @@ export default function AdminDashboard() {
             ) : (
               <div className="grid gap-4">
                 {pendingHouses.map((house) => (
-                  <Card key={house.id}>
-                    <CardHeader>
-                      <div className="flex items-start justify-between">
-                        <div>
-                          <CardTitle>{house.title}</CardTitle>
-                          <CardDescription>{house.location}</CardDescription>
-                        </div>
-                        <Badge variant="secondary">Pending</Badge>
-                      </div>
-                    </CardHeader>
-                    <CardContent>
-                      <div className="space-y-4">
-                        <p className="text-sm text-muted-foreground">
-                          {house.description || 'No description provided'}
-                        </p>
-                        <div className="flex items-center justify-between">
-                          <p className="font-semibold text-lg">
-                            ₹{house.rental_price.toLocaleString()}/month
-                          </p>
-                          <div className="flex gap-2">
-                            <Button
-                              size="sm"
-                              variant="outline"
-                              onClick={() => handleRejectHouse(house.id)}
-                              disabled={actionLoading === house.id}
-                            >
-                              {actionLoading === house.id ? (
-                                <Loader2 className="h-4 w-4 animate-spin" />
-                              ) : (
-                                <X className="h-4 w-4 mr-1" />
-                              )}
-                              Reject
-                            </Button>
-                            <Button
-                              size="sm"
-                              onClick={() => handleApproveHouse(house.id)}
-                              disabled={actionLoading === house.id}
-                              className="brand-gradient"
-                            >
-                              {actionLoading === house.id ? (
-                                <Loader2 className="h-4 w-4 animate-spin" />
-                              ) : (
-                                <Check className="h-4 w-4 mr-1" />
-                              )}
-                              Approve
-                            </Button>
-                          </div>
-                        </div>
-                      </div>
-                    </CardContent>
-                  </Card>
+                  <HouseCard key={house.id} house={house} showActions="pending" />
                 ))}
               </div>
             )}
@@ -391,47 +536,79 @@ export default function AdminDashboard() {
             ) : (
               <div className="grid gap-4">
                 {approvedHouses.map((house) => (
-                  <Card key={house.id}>
-                    <CardHeader>
-                      <div className="flex items-start justify-between">
-                        <div>
-                          <CardTitle>{house.title}</CardTitle>
-                          <CardDescription>{house.location}</CardDescription>
-                        </div>
-                        <Badge className="bg-emerald-500">Approved</Badge>
-                      </div>
-                    </CardHeader>
-                    <CardContent>
-                      <div className="space-y-4">
-                        <p className="text-sm text-muted-foreground">
-                          {house.description || 'No description provided'}
-                        </p>
-                        <div className="flex items-center justify-between">
-                          <p className="font-semibold text-lg">
-                            ₹{house.rental_price.toLocaleString()}/month
-                          </p>
-                          <div className="flex gap-2">
-                            <Button
-                              size="sm"
-                              variant="destructive"
-                              onClick={() => handleDeleteHouse(house.id)}
-                              disabled={actionLoading === house.id}
-                            >
-                              {actionLoading === house.id ? (
-                                <Loader2 className="h-4 w-4 animate-spin" />
-                              ) : (
-                                <X className="h-4 w-4 mr-1" />
-                              )}
-                              Delete
-                            </Button>
-                          </div>
-                        </div>
-                      </div>
-                    </CardContent>
-                  </Card>
+                  <HouseCard key={house.id} house={house} showActions="approved" />
                 ))}
               </div>
             )}
+          </TabsContent>
+
+          <TabsContent value="owners">
+            <Card>
+              <CardHeader>
+                <CardTitle>All House Owners</CardTitle>
+                <CardDescription>Registered house owners in the system</CardDescription>
+              </CardHeader>
+              <CardContent>
+                {owners.length === 0 ? (
+                  <div className="text-center py-8">
+                    <User className="h-12 w-12 mx-auto mb-4 text-muted-foreground" />
+                    <p className="text-muted-foreground">No house owners registered yet</p>
+                  </div>
+                ) : (
+                  <div className="space-y-3">
+                    {owners.map((owner) => {
+                      const ownerHouses = houses.filter(h => h.owner_id === owner.user_id);
+                      const approvedCount = ownerHouses.filter(h => h.is_approved).length;
+                      const pendingCount = ownerHouses.filter(h => !h.is_approved).length;
+                      
+                      return (
+                        <div 
+                          key={owner.user_id}
+                          className="flex items-center justify-between p-4 rounded-lg border border-border hover:bg-secondary/50 transition-colors"
+                        >
+                          <div className="flex items-center gap-3">
+                            <div className="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center">
+                              <User className="h-5 w-5 text-primary" />
+                            </div>
+                            <div>
+                              <p className="font-medium">{owner.full_name || 'Unknown'}</p>
+                              <p className="text-sm text-muted-foreground">{owner.email}</p>
+                            </div>
+                          </div>
+                          <div className="flex items-center gap-4">
+                            <div className="text-center">
+                              <p className="font-semibold">{ownerHouses.length}</p>
+                              <p className="text-xs text-muted-foreground">Properties</p>
+                            </div>
+                            <div className="text-center">
+                              <p className="font-semibold text-emerald-500">{approvedCount}</p>
+                              <p className="text-xs text-muted-foreground">Approved</p>
+                            </div>
+                            <div className="text-center">
+                              <p className="font-semibold text-amber-500">{pendingCount}</p>
+                              <p className="text-xs text-muted-foreground">Pending</p>
+                            </div>
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              onClick={() => {
+                                setSelectedOwner(owner.user_id);
+                                // Switch to messages tab
+                                const messagesTab = document.querySelector('[value="messages"]') as HTMLElement;
+                                messagesTab?.click();
+                              }}
+                            >
+                              <MessageSquare className="h-4 w-4 mr-1" />
+                              Chat
+                            </Button>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </CardContent>
+            </Card>
           </TabsContent>
 
           <TabsContent value="messages">
@@ -446,25 +623,36 @@ export default function AdminDashboard() {
                     {owners.length === 0 ? (
                       <p className="text-center text-muted-foreground py-8">No house owners yet</p>
                     ) : (
-                      owners.map((owner) => (
-                        <button
-                          key={owner.user_id}
-                          onClick={() => setSelectedOwner(owner.user_id)}
-                          className={`w-full p-4 text-left border-b transition-colors hover:bg-secondary/50 ${
-                            selectedOwner === owner.user_id ? 'bg-secondary' : ''
-                          }`}
-                        >
-                          <div className="flex items-center gap-3">
-                            <div className="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center">
-                              <User className="h-5 w-5 text-primary" />
+                      owners.map((owner) => {
+                        const unreadCount = messages.filter(
+                          m => m.sender_id === owner.user_id && !m.is_from_admin
+                        ).length;
+                        
+                        return (
+                          <button
+                            key={owner.user_id}
+                            onClick={() => setSelectedOwner(owner.user_id)}
+                            className={`w-full p-4 text-left border-b transition-colors hover:bg-secondary/50 ${
+                              selectedOwner === owner.user_id ? 'bg-secondary' : ''
+                            }`}
+                          >
+                            <div className="flex items-center gap-3">
+                              <div className="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center relative">
+                                <User className="h-5 w-5 text-primary" />
+                                {unreadCount > 0 && (
+                                  <span className="absolute -top-1 -right-1 w-5 h-5 bg-primary text-primary-foreground text-xs rounded-full flex items-center justify-center">
+                                    {unreadCount}
+                                  </span>
+                                )}
+                              </div>
+                              <div>
+                                <p className="font-medium">{owner.full_name || 'Unknown'}</p>
+                                <p className="text-sm text-muted-foreground">{owner.email}</p>
+                              </div>
                             </div>
-                            <div>
-                              <p className="font-medium">{owner.full_name || 'Unknown'}</p>
-                              <p className="text-sm text-muted-foreground">{owner.email}</p>
-                            </div>
-                          </div>
-                        </button>
-                      ))
+                          </button>
+                        );
+                      })
                     )}
                   </ScrollArea>
                 </CardContent>
@@ -504,6 +692,7 @@ export default function AdminDashboard() {
                               </div>
                             </div>
                           ))}
+                          <div ref={messagesEndRef} />
                         </div>
                       </ScrollArea>
                       <div className="p-4 border-t">
@@ -533,6 +722,25 @@ export default function AdminDashboard() {
             </div>
           </TabsContent>
         </Tabs>
+
+        {/* Image Gallery Dialog */}
+        <Dialog open={imageDialogOpen} onOpenChange={setImageDialogOpen}>
+          <DialogContent className="max-w-3xl">
+            <DialogHeader>
+              <DialogTitle>Property Photos</DialogTitle>
+            </DialogHeader>
+            <div className="grid grid-cols-2 gap-4">
+              {selectedHouseImages?.map((img, idx) => (
+                <img 
+                  key={idx}
+                  src={img} 
+                  alt={`Property ${idx + 1}`}
+                  className="w-full h-48 object-cover rounded-lg"
+                />
+              ))}
+            </div>
+          </DialogContent>
+        </Dialog>
       </div>
     </Layout>
   );
