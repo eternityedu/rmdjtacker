@@ -448,8 +448,10 @@ export type Database = {
       }
       houses: {
         Row: {
+          area_sqft: number | null
           created_at: string
           description: string | null
+          features: string[] | null
           id: string
           images: string[] | null
           is_approved: boolean
@@ -464,8 +466,10 @@ export type Database = {
           updated_at: string
         }
         Insert: {
+          area_sqft?: number | null
           created_at?: string
           description?: string | null
+          features?: string[] | null
           id?: string
           images?: string[] | null
           is_approved?: boolean
@@ -480,8 +484,10 @@ export type Database = {
           updated_at?: string
         }
         Update: {
+          area_sqft?: number | null
           created_at?: string
           description?: string | null
+          features?: string[] | null
           id?: string
           images?: string[] | null
           is_approved?: boolean

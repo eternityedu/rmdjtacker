@@ -19,7 +19,10 @@ import {
   CheckCircle,
   XCircle,
   Loader2,
-  Send
+  Send,
+  Upload,
+  X,
+  Image as ImageIcon
 } from 'lucide-react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 
@@ -31,6 +34,10 @@ interface House {
   is_approved: boolean;
   is_available: boolean;
   created_at: string;
+  area_sqft?: number;
+  features?: string[];
+  images?: string[];
+  description?: string;
 }
 
 interface Message {
@@ -57,6 +64,10 @@ export default function OwnerDashboard() {
   const [description, setDescription] = useState('');
   const [location, setLocation] = useState('');
   const [price, setPrice] = useState('');
+  const [area, setArea] = useState('');
+  const [features, setFeatures] = useState('');
+  const [images, setImages] = useState<File[]>([]);
+  const [uploadingImages, setUploadingImages] = useState(false);
 
   useEffect(() => {
     if (user) {
@@ -94,6 +105,47 @@ export default function OwnerDashboard() {
     }
   };
 
+  const handleImageSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files;
+    if (files) {
+      const newImages = Array.from(files).slice(0, 5 - images.length);
+      setImages(prev => [...prev, ...newImages]);
+    }
+  };
+
+  const removeImage = (index: number) => {
+    setImages(prev => prev.filter((_, i) => i !== index));
+  };
+
+  const uploadImages = async (): Promise<string[]> => {
+    if (images.length === 0) return [];
+    
+    setUploadingImages(true);
+    const uploadedUrls: string[] = [];
+    
+    try {
+      for (const image of images) {
+        const fileExt = image.name.split('.').pop();
+        const fileName = `${user!.id}/${Date.now()}-${Math.random().toString(36).substring(7)}.${fileExt}`;
+        
+        const { error: uploadError } = await supabase.storage
+          .from('house-images')
+          .upload(fileName, image);
+          
+        if (uploadError) throw uploadError;
+        
+        const { data: { publicUrl } } = supabase.storage
+          .from('house-images')
+          .getPublicUrl(fileName);
+          
+        uploadedUrls.push(publicUrl);
+      }
+      return uploadedUrls;
+    } finally {
+      setUploadingImages(false);
+    }
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!user) return;
@@ -105,6 +157,15 @@ export default function OwnerDashboard() {
 
     setSubmitting(true);
     try {
+      // Upload images first
+      const imageUrls = await uploadImages();
+      
+      // Parse features from comma-separated string
+      const featuresList = features
+        .split(',')
+        .map(f => f.trim())
+        .filter(f => f.length > 0);
+
       const { error } = await supabase
         .from('houses')
         .insert({
@@ -113,6 +174,9 @@ export default function OwnerDashboard() {
           description,
           location,
           rental_price: parseFloat(price),
+          area_sqft: area ? parseInt(area) : null,
+          features: featuresList.length > 0 ? featuresList : null,
+          images: imageUrls.length > 0 ? imageUrls : null,
           is_approved: false,
           is_available: true
         });
@@ -125,6 +189,9 @@ export default function OwnerDashboard() {
       setDescription('');
       setLocation('');
       setPrice('');
+      setArea('');
+      setFeatures('');
+      setImages([]);
       fetchData();
     } catch (error: any) {
       toast.error(error.message);
@@ -182,11 +249,47 @@ export default function OwnerDashboard() {
                 Add Property
               </Button>
             </DialogTrigger>
-            <DialogContent className="sm:max-w-md">
+            <DialogContent className="sm:max-w-lg max-h-[90vh] overflow-y-auto">
               <DialogHeader>
                 <DialogTitle>Submit New Property</DialogTitle>
               </DialogHeader>
               <form onSubmit={handleSubmit} className="space-y-4">
+                {/* Image Upload */}
+                <div className="space-y-2">
+                  <Label>Property Photos (up to 5)</Label>
+                  <div className="grid grid-cols-3 gap-2">
+                    {images.map((img, index) => (
+                      <div key={index} className="relative aspect-square rounded-lg overflow-hidden border border-border">
+                        <img 
+                          src={URL.createObjectURL(img)} 
+                          alt={`Preview ${index + 1}`}
+                          className="w-full h-full object-cover"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => removeImage(index)}
+                          className="absolute top-1 right-1 bg-destructive text-destructive-foreground rounded-full p-1"
+                        >
+                          <X className="h-3 w-3" />
+                        </button>
+                      </div>
+                    ))}
+                    {images.length < 5 && (
+                      <label className="aspect-square rounded-lg border-2 border-dashed border-border flex flex-col items-center justify-center cursor-pointer hover:bg-secondary/50 transition-colors">
+                        <Upload className="h-6 w-6 text-muted-foreground mb-1" />
+                        <span className="text-xs text-muted-foreground">Add Photo</span>
+                        <input
+                          type="file"
+                          accept="image/*"
+                          onChange={handleImageSelect}
+                          className="hidden"
+                          multiple
+                        />
+                      </label>
+                    )}
+                  </div>
+                </div>
+
                 <div className="space-y-2">
                   <Label htmlFor="title">Property Title *</Label>
                   <Input
@@ -207,16 +310,38 @@ export default function OwnerDashboard() {
                     required
                   />
                 </div>
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <Label htmlFor="price">Monthly Rent (₹) *</Label>
+                    <Input
+                      id="price"
+                      type="number"
+                      value={price}
+                      onChange={(e) => setPrice(e.target.value)}
+                      placeholder="15000"
+                      required
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="area">Area (sq.ft)</Label>
+                    <Input
+                      id="area"
+                      type="number"
+                      value={area}
+                      onChange={(e) => setArea(e.target.value)}
+                      placeholder="1200"
+                    />
+                  </div>
+                </div>
                 <div className="space-y-2">
-                  <Label htmlFor="price">Monthly Rent (₹) *</Label>
+                  <Label htmlFor="features">Specialties / Features</Label>
                   <Input
-                    id="price"
-                    type="number"
-                    value={price}
-                    onChange={(e) => setPrice(e.target.value)}
-                    placeholder="15000"
-                    required
+                    id="features"
+                    value={features}
+                    onChange={(e) => setFeatures(e.target.value)}
+                    placeholder="Parking, Garden, Gym, Swimming Pool"
                   />
+                  <p className="text-xs text-muted-foreground">Separate features with commas</p>
                 </div>
                 <div className="space-y-2">
                   <Label htmlFor="description">Description</Label>
@@ -224,7 +349,7 @@ export default function OwnerDashboard() {
                     id="description"
                     value={description}
                     onChange={(e) => setDescription(e.target.value)}
-                    placeholder="Describe your property..."
+                    placeholder="Describe your property in detail..."
                     rows={3}
                   />
                 </div>
@@ -234,12 +359,12 @@ export default function OwnerDashboard() {
                 <Button 
                   type="submit" 
                   className="w-full brand-gradient text-primary-foreground"
-                  disabled={submitting}
+                  disabled={submitting || uploadingImages}
                 >
-                  {submitting ? (
+                  {submitting || uploadingImages ? (
                     <>
                       <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                      Submitting...
+                      {uploadingImages ? 'Uploading Images...' : 'Submitting...'}
                     </>
                   ) : (
                     'Submit for Review'
@@ -321,17 +446,53 @@ export default function OwnerDashboard() {
                     {houses.map((house) => (
                       <div 
                         key={house.id}
-                        className="flex items-center justify-between p-4 rounded-lg border border-border hover:bg-secondary/50 transition-colors"
+                        className="p-4 rounded-lg border border-border hover:bg-secondary/50 transition-colors"
                       >
-                        <div className="flex-1">
-                          <div className="flex items-center gap-2 mb-1">
-                            <h3 className="font-semibold">{house.title}</h3>
-                            <Badge variant={house.is_approved ? 'default' : 'secondary'}>
-                              {house.is_approved ? 'Approved' : 'Pending'}
-                            </Badge>
+                        <div className="flex gap-4">
+                          {/* House Image */}
+                          {house.images && house.images.length > 0 ? (
+                            <div className="w-20 h-20 rounded-lg overflow-hidden flex-shrink-0">
+                              <img 
+                                src={house.images[0]} 
+                                alt={house.title}
+                                className="w-full h-full object-cover"
+                              />
+                            </div>
+                          ) : (
+                            <div className="w-20 h-20 rounded-lg bg-secondary flex items-center justify-center flex-shrink-0">
+                              <ImageIcon className="h-8 w-8 text-muted-foreground" />
+                            </div>
+                          )}
+                          
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center gap-2 mb-1">
+                              <h3 className="font-semibold truncate">{house.title}</h3>
+                              <Badge variant={house.is_approved ? 'default' : 'secondary'}>
+                                {house.is_approved ? 'Approved' : 'Pending'}
+                              </Badge>
+                            </div>
+                            <p className="text-sm text-muted-foreground">{house.location}</p>
+                            <div className="flex items-center gap-3 mt-1">
+                              <p className="text-sm font-medium text-primary">₹{house.rental_price.toLocaleString()}/month</p>
+                              {house.area_sqft && (
+                                <p className="text-xs text-muted-foreground">{house.area_sqft} sq.ft</p>
+                              )}
+                            </div>
+                            {house.features && house.features.length > 0 && (
+                              <div className="flex flex-wrap gap-1 mt-2">
+                                {house.features.slice(0, 3).map((feature, i) => (
+                                  <Badge key={i} variant="outline" className="text-xs">
+                                    {feature}
+                                  </Badge>
+                                ))}
+                                {house.features.length > 3 && (
+                                  <Badge variant="outline" className="text-xs">
+                                    +{house.features.length - 3} more
+                                  </Badge>
+                                )}
+                              </div>
+                            )}
                           </div>
-                          <p className="text-sm text-muted-foreground">{house.location}</p>
-                          <p className="text-sm font-medium text-primary">₹{house.rental_price.toLocaleString()}/month</p>
                         </div>
                       </div>
                     ))}
