@@ -24,7 +24,9 @@ import {
   X,
   Image as ImageIcon,
   MapPin,
-  Bell
+  Bell,
+  Pencil,
+  Trash2
 } from 'lucide-react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 
@@ -63,6 +65,9 @@ export default function OwnerDashboard() {
   const [submitting, setSubmitting] = useState(false);
   const [newMessage, setNewMessage] = useState('');
   const [sendingMessage, setSendingMessage] = useState(false);
+  const [editingHouse, setEditingHouse] = useState<House | null>(null);
+  const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
+  const [deleting, setDeleting] = useState(false);
 
   // Form state
   const [title, setTitle] = useState('');
@@ -73,6 +78,7 @@ export default function OwnerDashboard() {
   const [features, setFeatures] = useState('');
   const [nearbyPlaces, setNearbyPlaces] = useState('');
   const [images, setImages] = useState<File[]>([]);
+  const [existingImages, setExistingImages] = useState<string[]>([]);
   const [uploadingImages, setUploadingImages] = useState(false);
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -187,13 +193,65 @@ export default function OwnerDashboard() {
   const handleImageSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files;
     if (files) {
-      const newImages = Array.from(files).slice(0, 5 - images.length);
+      const totalImages = images.length + existingImages.length;
+      const newImages = Array.from(files).slice(0, 5 - totalImages);
       setImages(prev => [...prev, ...newImages]);
     }
   };
 
   const removeImage = (index: number) => {
     setImages(prev => prev.filter((_, i) => i !== index));
+  };
+
+  const removeExistingImage = (index: number) => {
+    setExistingImages(prev => prev.filter((_, i) => i !== index));
+  };
+
+  const resetForm = () => {
+    setTitle('');
+    setDescription('');
+    setLocation('');
+    setPrice('');
+    setArea('');
+    setFeatures('');
+    setNearbyPlaces('');
+    setImages([]);
+    setExistingImages([]);
+    setEditingHouse(null);
+  };
+
+  const openEditDialog = (house: House) => {
+    setEditingHouse(house);
+    setTitle(house.title);
+    setDescription(house.description || '');
+    setLocation(house.location);
+    setPrice(house.rental_price.toString());
+    setArea(house.area_sqft?.toString() || '');
+    setFeatures(house.features?.join(', ') || '');
+    setNearbyPlaces(house.nearby_places?.join(', ') || '');
+    setExistingImages(house.images || []);
+    setImages([]);
+    setDialogOpen(true);
+  };
+
+  const handleDeleteHouse = async (houseId: string) => {
+    setDeleting(true);
+    try {
+      const { error } = await supabase
+        .from('houses')
+        .delete()
+        .eq('id', houseId);
+
+      if (error) throw error;
+
+      setHouses(prev => prev.filter(h => h.id !== houseId));
+      setDeleteConfirmId(null);
+      toast.success('Property deleted successfully');
+    } catch (error: any) {
+      toast.error(error.message || 'Failed to delete property');
+    } finally {
+      setDeleting(false);
+    }
   };
 
   const uploadImages = async (): Promise<string[]> => {
@@ -236,8 +294,11 @@ export default function OwnerDashboard() {
 
     setSubmitting(true);
     try {
-      // Upload images first
-      const imageUrls = await uploadImages();
+      // Upload new images first
+      const newImageUrls = await uploadImages();
+      
+      // Combine existing and new images
+      const allImages = [...existingImages, ...newImageUrls];
       
       // Parse features from comma-separated string
       const featuresList = features
@@ -251,34 +312,43 @@ export default function OwnerDashboard() {
         .map(p => p.trim())
         .filter(p => p.length > 0);
 
-      const { error } = await supabase
-        .from('houses')
-        .insert({
-          owner_id: user.id,
-          title,
-          description,
-          location,
-          rental_price: parseFloat(price),
-          area_sqft: area ? parseInt(area) : null,
-          features: featuresList.length > 0 ? featuresList : null,
-          nearby_places: nearbyPlacesList.length > 0 ? nearbyPlacesList : null,
-          images: imageUrls.length > 0 ? imageUrls : null,
-          is_approved: false,
-          is_available: true
-        });
+      const houseData = {
+        title,
+        description: description || null,
+        location,
+        rental_price: parseFloat(price),
+        area_sqft: area ? parseInt(area) : null,
+        features: featuresList.length > 0 ? featuresList : null,
+        nearby_places: nearbyPlacesList.length > 0 ? nearbyPlacesList : null,
+        images: allImages.length > 0 ? allImages : null,
+      };
 
-      if (error) throw error;
+      if (editingHouse) {
+        // Update existing house
+        const { error } = await supabase
+          .from('houses')
+          .update(houseData)
+          .eq('id', editingHouse.id);
 
-      toast.success('Property submitted for review!');
+        if (error) throw error;
+        toast.success('Property updated successfully!');
+      } else {
+        // Insert new house
+        const { error } = await supabase
+          .from('houses')
+          .insert({
+            ...houseData,
+            owner_id: user.id,
+            is_approved: false,
+            is_available: true
+          });
+
+        if (error) throw error;
+        toast.success('Property submitted for review!');
+      }
+
       setDialogOpen(false);
-      setTitle('');
-      setDescription('');
-      setLocation('');
-      setPrice('');
-      setArea('');
-      setFeatures('');
-      setNearbyPlaces('');
-      setImages([]);
+      resetForm();
       fetchData();
     } catch (error: any) {
       toast.error(error.message);
@@ -333,7 +403,10 @@ export default function OwnerDashboard() {
             </p>
           </div>
           
-          <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
+          <Dialog open={dialogOpen} onOpenChange={(open) => {
+            setDialogOpen(open);
+            if (!open) resetForm();
+          }}>
             <DialogTrigger asChild>
               <Button className="brand-gradient text-primary-foreground">
                 <Plus className="mr-2 h-4 w-4" />
@@ -342,15 +415,33 @@ export default function OwnerDashboard() {
             </DialogTrigger>
             <DialogContent className="sm:max-w-lg max-h-[90vh] overflow-y-auto">
               <DialogHeader>
-                <DialogTitle>Submit New Property</DialogTitle>
+                <DialogTitle>{editingHouse ? 'Edit Property' : 'Submit New Property'}</DialogTitle>
               </DialogHeader>
               <form onSubmit={handleSubmit} className="space-y-4">
                 {/* Image Upload */}
                 <div className="space-y-2">
                   <Label>Property Photos (up to 5)</Label>
                   <div className="grid grid-cols-3 gap-2">
+                    {/* Existing images (when editing) */}
+                    {existingImages.map((img, index) => (
+                      <div key={`existing-${index}`} className="relative aspect-square rounded-lg overflow-hidden border border-border">
+                        <img 
+                          src={img} 
+                          alt={`Existing ${index + 1}`}
+                          className="w-full h-full object-cover"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => removeExistingImage(index)}
+                          className="absolute top-1 right-1 bg-destructive text-destructive-foreground rounded-full p-1"
+                        >
+                          <X className="h-3 w-3" />
+                        </button>
+                      </div>
+                    ))}
+                    {/* New images */}
                     {images.map((img, index) => (
-                      <div key={index} className="relative aspect-square rounded-lg overflow-hidden border border-border">
+                      <div key={`new-${index}`} className="relative aspect-square rounded-lg overflow-hidden border border-border">
                         <img 
                           src={URL.createObjectURL(img)} 
                           alt={`Preview ${index + 1}`}
@@ -365,7 +456,7 @@ export default function OwnerDashboard() {
                         </button>
                       </div>
                     ))}
-                    {images.length < 5 && (
+                    {(images.length + existingImages.length) < 5 && (
                       <label className="aspect-square rounded-lg border-2 border-dashed border-border flex flex-col items-center justify-center cursor-pointer hover:bg-secondary/50 transition-colors">
                         <Upload className="h-6 w-6 text-muted-foreground mb-1" />
                         <span className="text-xs text-muted-foreground">Add Photo</span>
@@ -457,9 +548,16 @@ export default function OwnerDashboard() {
                     rows={3}
                   />
                 </div>
-                <p className="text-xs text-muted-foreground">
-                  Your property will be reviewed by admin before being listed publicly.
-                </p>
+                {!editingHouse && (
+                  <p className="text-xs text-muted-foreground">
+                    Your property will be reviewed by admin before being listed publicly.
+                  </p>
+                )}
+                {editingHouse && !editingHouse.is_approved && (
+                  <p className="text-xs text-muted-foreground">
+                    Changes will require re-review by admin.
+                  </p>
+                )}
                 <Button 
                   type="submit" 
                   className="w-full brand-gradient text-primary-foreground"
@@ -468,8 +566,10 @@ export default function OwnerDashboard() {
                   {submitting || uploadingImages ? (
                     <>
                       <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                      {uploadingImages ? 'Uploading Images...' : 'Submitting...'}
+                      {uploadingImages ? 'Uploading Images...' : 'Saving...'}
                     </>
+                  ) : editingHouse ? (
+                    'Save Changes'
                   ) : (
                     'Submit for Review'
                   )}
@@ -574,11 +674,56 @@ export default function OwnerDashboard() {
                           )}
                           
                           <div className="flex-1 min-w-0">
-                            <div className="flex items-center gap-2 mb-1">
-                              <h3 className="font-semibold truncate">{house.title}</h3>
-                              <Badge variant={house.is_approved ? 'default' : 'secondary'}>
-                                {house.is_approved ? 'Approved' : 'Pending'}
-                              </Badge>
+                            <div className="flex items-center justify-between gap-2 mb-1">
+                              <div className="flex items-center gap-2 min-w-0">
+                                <h3 className="font-semibold truncate">{house.title}</h3>
+                                <Badge variant={house.is_approved ? 'default' : 'secondary'}>
+                                  {house.is_approved ? 'Approved' : 'Pending'}
+                                </Badge>
+                              </div>
+                              {/* Edit/Delete buttons for unapproved houses */}
+                              {!house.is_approved && (
+                                <div className="flex gap-1 flex-shrink-0">
+                                  <Button 
+                                    size="sm" 
+                                    variant="ghost"
+                                    onClick={() => openEditDialog(house)}
+                                    className="h-8 w-8 p-0"
+                                  >
+                                    <Pencil className="h-4 w-4" />
+                                  </Button>
+                                  {deleteConfirmId === house.id ? (
+                                    <div className="flex gap-1">
+                                      <Button
+                                        size="sm"
+                                        variant="destructive"
+                                        onClick={() => handleDeleteHouse(house.id)}
+                                        disabled={deleting}
+                                        className="h-8 px-2 text-xs"
+                                      >
+                                        {deleting ? <Loader2 className="h-3 w-3 animate-spin" /> : 'Confirm'}
+                                      </Button>
+                                      <Button
+                                        size="sm"
+                                        variant="outline"
+                                        onClick={() => setDeleteConfirmId(null)}
+                                        className="h-8 px-2 text-xs"
+                                      >
+                                        Cancel
+                                      </Button>
+                                    </div>
+                                  ) : (
+                                    <Button 
+                                      size="sm" 
+                                      variant="ghost"
+                                      onClick={() => setDeleteConfirmId(house.id)}
+                                      className="h-8 w-8 p-0 text-destructive hover:text-destructive"
+                                    >
+                                      <Trash2 className="h-4 w-4" />
+                                    </Button>
+                                  )}
+                                </div>
+                              )}
                             </div>
                             <p className="text-sm text-muted-foreground">{house.location}</p>
                             <div className="flex items-center gap-3 mt-1">
@@ -607,7 +752,7 @@ export default function OwnerDashboard() {
                                   <MapPin className="h-3 w-3 inline" /> Nearby:
                                 </span>
                                 {house.nearby_places.slice(0, 2).map((place, i) => (
-                                  <Badge key={i} variant="secondary" className="text-xs bg-blue-500/10 text-blue-600 border-blue-500/20">
+                                  <Badge key={i} variant="secondary" className="text-xs bg-primary/10 text-primary border-primary/20">
                                     {place}
                                   </Badge>
                                 ))}

@@ -432,7 +432,7 @@ export default function AdminDashboard() {
               <div className="flex flex-wrap gap-1 mb-3">
                 <span className="text-xs text-muted-foreground mr-1">Nearby:</span>
                 {house.nearby_places.slice(0, 3).map((place, idx) => (
-                  <Badge key={idx} variant="secondary" className="text-xs bg-blue-500/10 text-blue-600 border-blue-500/20">
+                  <Badge key={idx} variant="secondary" className="text-xs bg-primary/10 text-primary border-primary/20">
                     {place}
                   </Badge>
                 ))}
