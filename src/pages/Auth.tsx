@@ -10,6 +10,7 @@ import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { toast } from 'sonner';
 import { Eye, EyeOff, Loader2, User, Home } from 'lucide-react';
 import rmdjLogo from '@/assets/rmdj-logo.png';
+import { ForgotPasswordDialog } from '@/components/auth/ForgotPasswordDialog';
 
 type UserRole = 'user' | 'house_owner';
 
@@ -119,7 +120,10 @@ export default function Auth() {
                   </div>
 
                   <div className="space-y-2">
-                    <Label htmlFor="signin-password">Password</Label>
+                    <div className="flex items-center justify-between">
+                      <Label htmlFor="signin-password">Password</Label>
+                      <ForgotPasswordDialog />
+                    </div>
                     <div className="relative">
                       <Input
                         id="signin-password"
