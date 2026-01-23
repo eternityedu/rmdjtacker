@@ -21,7 +21,8 @@ import {
   User,
   Image as ImageIcon,
   MapPin,
-  Maximize2
+  Maximize2,
+  Bell
 } from 'lucide-react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 
@@ -38,6 +39,7 @@ interface House {
   images: string[] | null;
   area_sqft: number | null;
   features: string[] | null;
+  nearby_places: string[] | null;
 }
 
 interface Message {
@@ -47,6 +49,8 @@ interface Message {
   is_from_admin: boolean;
   created_at: string;
   house_id: string | null;
+  is_read: boolean;
+  recipient_id: string | null;
 }
 
 interface Owner {
@@ -115,6 +119,13 @@ export default function AdminDashboard() {
     }
   }, [messages, selectedOwner]);
 
+  // Mark messages as read when selecting an owner
+  useEffect(() => {
+    if (selectedOwner && user) {
+      markMessagesAsRead(selectedOwner);
+    }
+  }, [selectedOwner, user]);
+
   const fetchData = async () => {
     try {
       // Fetch all houses
@@ -162,6 +173,31 @@ export default function AdminDashboard() {
       });
     } finally {
       setLoading(false);
+    }
+  };
+
+  const markMessagesAsRead = async (ownerId: string) => {
+    try {
+      // Mark all messages from this owner as read
+      const unreadMessageIds = messages
+        .filter(m => m.sender_id === ownerId && !m.is_from_admin && !m.is_read)
+        .map(m => m.id);
+
+      if (unreadMessageIds.length === 0) return;
+
+      const { error } = await supabase
+        .from('owner_admin_messages')
+        .update({ is_read: true })
+        .in('id', unreadMessageIds);
+
+      if (error) throw error;
+
+      // Update local state
+      setMessages(prev => prev.map(m => 
+        unreadMessageIds.includes(m.id) ? { ...m, is_read: true } : m
+      ));
+    } catch (error) {
+      console.error('Error marking messages as read:', error);
     }
   };
 
@@ -263,6 +299,8 @@ export default function AdminDashboard() {
           message: newMessage.trim(),
           sender_id: user.id,
           is_from_admin: true,
+          recipient_id: selectedOwner,
+          is_read: false,
         })
         .select()
         .single();
@@ -284,8 +322,18 @@ export default function AdminDashboard() {
   const getOwnerMessages = (ownerId: string) => {
     return messages.filter(m => 
       m.sender_id === ownerId || 
-      (m.is_from_admin && m.sender_id === user?.id)
+      (m.is_from_admin && m.recipient_id === ownerId)
     );
+  };
+
+  const getUnreadCount = (ownerId: string) => {
+    return messages.filter(
+      m => m.sender_id === ownerId && !m.is_from_admin && !m.is_read
+    ).length;
+  };
+
+  const getTotalUnreadCount = () => {
+    return messages.filter(m => !m.is_from_admin && !m.is_read).length;
   };
 
   const getOwnerName = (ownerId: string) => {
@@ -300,6 +348,7 @@ export default function AdminDashboard() {
 
   const pendingHouses = houses.filter(h => !h.is_approved);
   const approvedHouses = houses.filter(h => h.is_approved);
+  const totalUnread = getTotalUnreadCount();
 
   const HouseCard = ({ house, showActions }: { house: House; showActions: 'pending' | 'approved' }) => (
     <Card key={house.id}>
@@ -364,7 +413,7 @@ export default function AdminDashboard() {
             </div>
 
             {house.features && house.features.length > 0 && (
-              <div className="flex flex-wrap gap-1 mb-3">
+              <div className="flex flex-wrap gap-1 mb-2">
                 {house.features.slice(0, 4).map((feature, idx) => (
                   <Badge key={idx} variant="outline" className="text-xs">
                     {feature}
@@ -373,6 +422,23 @@ export default function AdminDashboard() {
                 {house.features.length > 4 && (
                   <Badge variant="outline" className="text-xs">
                     +{house.features.length - 4} more
+                  </Badge>
+                )}
+              </div>
+            )}
+
+            {/* Nearby Places */}
+            {house.nearby_places && house.nearby_places.length > 0 && (
+              <div className="flex flex-wrap gap-1 mb-3">
+                <span className="text-xs text-muted-foreground mr-1">Nearby:</span>
+                {house.nearby_places.slice(0, 3).map((place, idx) => (
+                  <Badge key={idx} variant="secondary" className="text-xs bg-blue-500/10 text-blue-600 border-blue-500/20">
+                    {place}
+                  </Badge>
+                ))}
+                {house.nearby_places.length > 3 && (
+                  <Badge variant="secondary" className="text-xs">
+                    +{house.nearby_places.length - 3} more
                   </Badge>
                 )}
               </div>
@@ -502,9 +568,14 @@ export default function AdminDashboard() {
               <User className="h-4 w-4" />
               Owners ({owners.length})
             </TabsTrigger>
-            <TabsTrigger value="messages" className="flex items-center gap-2">
+            <TabsTrigger value="messages" className="flex items-center gap-2 relative">
               <MessageSquare className="h-4 w-4" />
               Messages
+              {totalUnread > 0 && (
+                <span className="absolute -top-1 -right-1 min-w-5 h-5 bg-destructive text-destructive-foreground text-xs rounded-full flex items-center justify-center px-1">
+                  {totalUnread}
+                </span>
+              )}
             </TabsTrigger>
           </TabsList>
 
@@ -560,6 +631,7 @@ export default function AdminDashboard() {
                       const ownerHouses = houses.filter(h => h.owner_id === owner.user_id);
                       const approvedCount = ownerHouses.filter(h => h.is_approved).length;
                       const pendingCount = ownerHouses.filter(h => !h.is_approved).length;
+                      const unreadCount = getUnreadCount(owner.user_id);
                       
                       return (
                         <div 
@@ -567,8 +639,13 @@ export default function AdminDashboard() {
                           className="flex items-center justify-between p-4 rounded-lg border border-border hover:bg-secondary/50 transition-colors"
                         >
                           <div className="flex items-center gap-3">
-                            <div className="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center">
+                            <div className="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center relative">
                               <User className="h-5 w-5 text-primary" />
+                              {unreadCount > 0 && (
+                                <span className="absolute -top-1 -right-1 w-5 h-5 bg-destructive text-destructive-foreground text-xs rounded-full flex items-center justify-center">
+                                  {unreadCount}
+                                </span>
+                              )}
                             </div>
                             <div>
                               <p className="font-medium">{owner.full_name || 'Unknown'}</p>
@@ -597,9 +674,15 @@ export default function AdminDashboard() {
                                 const messagesTab = document.querySelector('[value="messages"]') as HTMLElement;
                                 messagesTab?.click();
                               }}
+                              className="relative"
                             >
                               <MessageSquare className="h-4 w-4 mr-1" />
                               Chat
+                              {unreadCount > 0 && (
+                                <span className="absolute -top-2 -right-2 w-5 h-5 bg-destructive text-destructive-foreground text-xs rounded-full flex items-center justify-center">
+                                  {unreadCount}
+                                </span>
+                              )}
                             </Button>
                           </div>
                         </div>
@@ -616,7 +699,14 @@ export default function AdminDashboard() {
               {/* Owners List */}
               <Card className="md:col-span-1">
                 <CardHeader>
-                  <CardTitle className="text-lg">House Owners</CardTitle>
+                  <CardTitle className="text-lg flex items-center gap-2">
+                    House Owners
+                    {totalUnread > 0 && (
+                      <Badge variant="destructive" className="ml-2">
+                        {totalUnread} unread
+                      </Badge>
+                    )}
+                  </CardTitle>
                 </CardHeader>
                 <CardContent className="p-0">
                   <ScrollArea className="h-[500px]">
@@ -624,9 +714,7 @@ export default function AdminDashboard() {
                       <p className="text-center text-muted-foreground py-8">No house owners yet</p>
                     ) : (
                       owners.map((owner) => {
-                        const unreadCount = messages.filter(
-                          m => m.sender_id === owner.user_id && !m.is_from_admin
-                        ).length;
+                        const unreadCount = getUnreadCount(owner.user_id);
                         
                         return (
                           <button
@@ -640,14 +728,19 @@ export default function AdminDashboard() {
                               <div className="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center relative">
                                 <User className="h-5 w-5 text-primary" />
                                 {unreadCount > 0 && (
-                                  <span className="absolute -top-1 -right-1 w-5 h-5 bg-primary text-primary-foreground text-xs rounded-full flex items-center justify-center">
+                                  <span className="absolute -top-1 -right-1 w-5 h-5 bg-destructive text-destructive-foreground text-xs rounded-full flex items-center justify-center">
                                     {unreadCount}
                                   </span>
                                 )}
                               </div>
-                              <div>
-                                <p className="font-medium">{owner.full_name || 'Unknown'}</p>
-                                <p className="text-sm text-muted-foreground">{owner.email}</p>
+                              <div className="flex-1 min-w-0">
+                                <div className="flex items-center justify-between">
+                                  <p className="font-medium truncate">{owner.full_name || 'Unknown'}</p>
+                                  {unreadCount > 0 && (
+                                    <Bell className="h-4 w-4 text-destructive animate-pulse" />
+                                  )}
+                                </div>
+                                <p className="text-sm text-muted-foreground truncate">{owner.email}</p>
                               </div>
                             </div>
                           </button>

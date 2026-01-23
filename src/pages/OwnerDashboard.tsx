@@ -22,7 +22,9 @@ import {
   Send,
   Upload,
   X,
-  Image as ImageIcon
+  Image as ImageIcon,
+  MapPin,
+  Bell
 } from 'lucide-react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 
@@ -38,6 +40,7 @@ interface House {
   features?: string[];
   images?: string[];
   description?: string;
+  nearby_places?: string[];
 }
 
 interface Message {
@@ -47,6 +50,8 @@ interface Message {
   is_from_admin: boolean;
   created_at: string;
   house_id: string | null;
+  is_read: boolean;
+  recipient_id: string | null;
 }
 
 export default function OwnerDashboard() {
@@ -66,6 +71,7 @@ export default function OwnerDashboard() {
   const [price, setPrice] = useState('');
   const [area, setArea] = useState('');
   const [features, setFeatures] = useState('');
+  const [nearbyPlaces, setNearbyPlaces] = useState('');
   const [images, setImages] = useState<File[]>([]);
   const [uploadingImages, setUploadingImages] = useState(false);
 
@@ -92,11 +98,14 @@ export default function OwnerDashboard() {
         },
         (payload) => {
           const newMsg = payload.new as Message;
-          setMessages(prev => {
-            // Avoid duplicates
-            if (prev.some(m => m.id === newMsg.id)) return prev;
-            return [...prev, newMsg];
-          });
+          // Only add messages relevant to this owner
+          if (newMsg.sender_id === user.id || newMsg.recipient_id === user.id) {
+            setMessages(prev => {
+              // Avoid duplicates
+              if (prev.some(m => m.id === newMsg.id)) return prev;
+              return [...prev, newMsg];
+            });
+          }
         }
       )
       .subscribe();
@@ -127,20 +136,52 @@ export default function OwnerDashboard() {
       if (housesError) throw housesError;
       setHouses(housesData || []);
 
-      // Fetch messages
+      // Fetch messages - both sent by owner and received from admin
       const { data: messagesData, error: messagesError } = await supabase
         .from('owner_admin_messages')
         .select('*')
-        .or(`sender_id.eq.${user.id},is_from_admin.eq.true`)
+        .or(`sender_id.eq.${user.id},recipient_id.eq.${user.id}`)
         .order('created_at', { ascending: true });
 
       if (messagesError) throw messagesError;
       setMessages(messagesData || []);
+
+      // Mark admin messages as read
+      const unreadAdminMessages = (messagesData || []).filter(
+        m => m.is_from_admin && m.recipient_id === user.id && !m.is_read
+      );
+      if (unreadAdminMessages.length > 0) {
+        markMessagesAsRead(unreadAdminMessages.map(m => m.id));
+      }
     } catch (error) {
       console.error('Error fetching data:', error);
     } finally {
       setLoading(false);
     }
+  };
+
+  const markMessagesAsRead = async (messageIds: string[]) => {
+    try {
+      const { error } = await supabase
+        .from('owner_admin_messages')
+        .update({ is_read: true })
+        .in('id', messageIds);
+
+      if (error) throw error;
+
+      setMessages(prev => prev.map(m => 
+        messageIds.includes(m.id) ? { ...m, is_read: true } : m
+      ));
+    } catch (error) {
+      console.error('Error marking messages as read:', error);
+    }
+  };
+
+  const getUnreadAdminMessageCount = () => {
+    if (!user) return 0;
+    return messages.filter(
+      m => m.is_from_admin && m.recipient_id === user.id && !m.is_read
+    ).length;
   };
 
   const handleImageSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -204,6 +245,12 @@ export default function OwnerDashboard() {
         .map(f => f.trim())
         .filter(f => f.length > 0);
 
+      // Parse nearby places from comma-separated string
+      const nearbyPlacesList = nearbyPlaces
+        .split(',')
+        .map(p => p.trim())
+        .filter(p => p.length > 0);
+
       const { error } = await supabase
         .from('houses')
         .insert({
@@ -214,6 +261,7 @@ export default function OwnerDashboard() {
           rental_price: parseFloat(price),
           area_sqft: area ? parseInt(area) : null,
           features: featuresList.length > 0 ? featuresList : null,
+          nearby_places: nearbyPlacesList.length > 0 ? nearbyPlacesList : null,
           images: imageUrls.length > 0 ? imageUrls : null,
           is_approved: false,
           is_available: true
@@ -229,6 +277,7 @@ export default function OwnerDashboard() {
       setPrice('');
       setArea('');
       setFeatures('');
+      setNearbyPlaces('');
       setImages([]);
       fetchData();
     } catch (error: any) {
@@ -249,6 +298,8 @@ export default function OwnerDashboard() {
           message: newMessage.trim(),
           sender_id: user.id,
           is_from_admin: false,
+          recipient_id: null, // Admin will receive
+          is_read: false,
         })
         .select()
         .single();
@@ -265,6 +316,8 @@ export default function OwnerDashboard() {
       setSendingMessage(false);
     }
   };
+
+  const unreadCount = getUnreadAdminMessageCount();
 
   return (
     <Layout>
@@ -382,6 +435,19 @@ export default function OwnerDashboard() {
                   <p className="text-xs text-muted-foreground">Separate features with commas</p>
                 </div>
                 <div className="space-y-2">
+                  <Label htmlFor="nearbyPlaces" className="flex items-center gap-2">
+                    <MapPin className="h-4 w-4" />
+                    Nearby Places
+                  </Label>
+                  <Input
+                    id="nearbyPlaces"
+                    value={nearbyPlaces}
+                    onChange={(e) => setNearbyPlaces(e.target.value)}
+                    placeholder="Metro Station, Hospital, School, Mall"
+                  />
+                  <p className="text-xs text-muted-foreground">Add proximity to metro, hospitals, schools, etc. (comma separated)</p>
+                </div>
+                <div className="space-y-2">
                   <Label htmlFor="description">Description</Label>
                   <Textarea
                     id="description"
@@ -448,9 +514,14 @@ export default function OwnerDashboard() {
               <Home className="h-4 w-4" />
               Properties
             </TabsTrigger>
-            <TabsTrigger value="messages" className="flex items-center gap-2">
+            <TabsTrigger value="messages" className="flex items-center gap-2 relative">
               <MessageSquare className="h-4 w-4" />
               Chat with Admin
+              {unreadCount > 0 && (
+                <span className="absolute -top-1 -right-1 min-w-5 h-5 bg-destructive text-destructive-foreground text-xs rounded-full flex items-center justify-center px-1">
+                  {unreadCount}
+                </span>
+              )}
             </TabsTrigger>
           </TabsList>
 
@@ -530,6 +601,23 @@ export default function OwnerDashboard() {
                                 )}
                               </div>
                             )}
+                            {house.nearby_places && house.nearby_places.length > 0 && (
+                              <div className="flex flex-wrap gap-1 mt-2">
+                                <span className="text-xs text-muted-foreground mr-1">
+                                  <MapPin className="h-3 w-3 inline" /> Nearby:
+                                </span>
+                                {house.nearby_places.slice(0, 2).map((place, i) => (
+                                  <Badge key={i} variant="secondary" className="text-xs bg-blue-500/10 text-blue-600 border-blue-500/20">
+                                    {place}
+                                  </Badge>
+                                ))}
+                                {house.nearby_places.length > 2 && (
+                                  <Badge variant="secondary" className="text-xs">
+                                    +{house.nearby_places.length - 2} more
+                                  </Badge>
+                                )}
+                              </div>
+                            )}
                           </div>
                         </div>
                       </div>
@@ -546,6 +634,12 @@ export default function OwnerDashboard() {
                 <CardTitle className="flex items-center gap-2">
                   <MessageSquare className="h-5 w-5 text-primary" />
                   Admin Chat
+                  {unreadCount > 0 && (
+                    <Badge variant="destructive" className="ml-2 flex items-center gap-1">
+                      <Bell className="h-3 w-3" />
+                      {unreadCount} new
+                    </Badge>
+                  )}
                 </CardTitle>
                 <CardDescription>
                   Discuss listing requests, pricing, and approvals with the admin
