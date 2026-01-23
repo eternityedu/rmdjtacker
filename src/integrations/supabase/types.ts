@@ -536,7 +536,9 @@ export type Database = {
           house_id: string | null
           id: string
           is_from_admin: boolean
+          is_read: boolean
           message: string
+          recipient_id: string | null
           sender_id: string
         }
         Insert: {
@@ -544,7 +546,9 @@ export type Database = {
           house_id?: string | null
           id?: string
           is_from_admin?: boolean
+          is_read?: boolean
           message: string
+          recipient_id?: string | null
           sender_id: string
         }
         Update: {
@@ -552,7 +556,9 @@ export type Database = {
           house_id?: string | null
           id?: string
           is_from_admin?: boolean
+          is_read?: boolean
           message?: string
+          recipient_id?: string | null
           sender_id?: string
         }
         Relationships: [
